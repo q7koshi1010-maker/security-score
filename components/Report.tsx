@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import type { CheckResult, PhpAssessment, ScanReport, Status } from "@/lib/types";
 
 const LABEL: Record<Status, string> = { pass: "合格", warn: "注意", fail: "要対策", info: "情報", unknown: "不明" };
@@ -75,6 +76,52 @@ function Item({ r }: { r: CheckResult }) {
   );
 }
 
+const STATUS_TEXT: Record<Status, string> = { pass: "合格", warn: "注意", fail: "要対策", info: "情報", unknown: "対象外" };
+
+/** 相談やメールに貼り付けやすいテキスト形式に変換する */
+export function reportToText(report: ScanReport): string {
+  const lines = [
+    `【セキュリティ診断結果】${report.finalUrl}`,
+    `スコア: ${report.totalScore} / 100 (評価 ${report.grade})`,
+    `診断日時: ${new Date(report.scannedAt).toLocaleString("ja-JP")}`,
+    "",
+    `PHP: ${report.php.summary}`,
+  ];
+  if (report.php.evidence.length) lines.push(`  根拠: ${report.php.evidence.join(" / ")}`);
+  const order: Status[] = ["fail", "warn", "pass", "info", "unknown"];
+  for (const st of order) {
+    const items = report.results.filter((r) => r.status === st);
+    if (!items.length) continue;
+    lines.push("", `■ ${STATUS_TEXT[st]} (${items.length} 件)`);
+    for (const r of items) {
+      lines.push(`- ${r.title} [${r.score}/${r.weight}]`);
+      if (st === "fail" || st === "warn") {
+        lines.push(`  状況: ${r.detail}`);
+        if (r.advice) lines.push(`  対策: ${r.advice}`);
+      }
+    }
+  }
+  return lines.join("\n");
+}
+
+function CopyButton({ report }: { report: ScanReport }) {
+  const [state, setState] = useState<"idle" | "done" | "error">("idle");
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(reportToText(report));
+      setState("done");
+    } catch {
+      setState("error");
+    }
+    setTimeout(() => setState("idle"), 2500);
+  }
+  return (
+    <button type="button" className="secondary" onClick={copy}>
+      {state === "done" ? "コピーしました" : state === "error" ? "コピーできませんでした" : "結果をテキストでコピー"}
+    </button>
+  );
+}
+
 export function Report({ report }: { report: ScanReport }) {
   const cats = Array.from(new Set(report.results.map((r) => r.category)));
   const count = (s: Status) => report.results.filter((r) => r.status === s).length;
@@ -92,6 +139,7 @@ export function Report({ report }: { report: ScanReport }) {
             <span><Badge status="warn" /> {count("warn")}</span>
             <span><Badge status="pass" /> {count("pass")}</span>
           </div>
+          <div style={{ marginTop: 12 }}><CopyButton report={report} /></div>
         </div>
       </div>
       <PhpPanel php={report.php} />
